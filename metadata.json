@@ -1,0 +1,6 @@
+{
+  "name": "CineVerse",
+  "description": "Discover movies, TV shows, trailers, cast, and live cinema charts across global film and television APIs.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
