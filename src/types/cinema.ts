@@ -1,6 +1,13 @@
 export type MediaType = 'movie' | 'tv' | 'anime';
 
-export type CinemaSource = 'itunes' | 'tvmaze' | 'ghibli' | 'imdb';
+export type CinemaSource = 'itunes' | 'tvmaze' | 'ghibli' | 'imdb' | 'archive';
+
+export interface DownloadFileOption {
+  label: string;
+  url: string;
+  sizeBytes?: number;
+  format: string;
+}
 
 export interface CinemaItem {
   id: string;
@@ -13,6 +20,9 @@ export interface CinemaItem {
   posterUrl: string;
   backdropUrl: string;
   trailerUrl?: string;
+  downloadUrl?: string;
+  isFullMovie?: boolean;
+  downloadFiles?: DownloadFileOption[];
   externalUrl?: string;
   releaseDate: string;
   year: number | null;
@@ -28,6 +38,12 @@ export interface CinemaItem {
   rank?: number;
   castNames?: string;
   addedAt?: string;
+  umusobanuzi?: {
+    id: string;
+    name: string;
+    aka: string;
+  };
+  kinyarwandaCategory?: string;
 }
 
 export interface PersonItem {
@@ -75,6 +91,41 @@ export interface PersonDetailResponse extends PersonItem {
   }>;
 }
 
+export interface Umusobanuzi {
+  id: string;
+  name: string;
+  aka: string;
+  studio: string;
+  city: string;
+  era: 'Pioneer' | 'Mainstream' | 'New Generation';
+  specialty: string[];
+  bioKinyarwanda: string;
+  catchphrase: string;
+}
+
+export interface AgasobanuyeResponse {
+  items: CinemaItem[];
+  abasobanuzi: Umusobanuzi[];
+  categories: string[];
+  total: number;
+}
+
+export interface DownloadsResponse {
+  fullMovies: CinemaItem[];
+  trailers: CinemaItem[];
+  totalFullMovies: number;
+  totalTrailers: number;
+}
+
+export interface DownloadHistoryEntry {
+  id: string;
+  mediaId: string;
+  title: string;
+  kind: 'Full Movie' | 'Trailer' | 'Poster' | 'Info Card';
+  downloadedAt: string;
+  posterUrl?: string;
+}
+
 export interface HomeCinemaResponse {
   hero: CinemaItem[];
   trending: CinemaItem[];
@@ -82,6 +133,9 @@ export interface HomeCinemaResponse {
   popularTv: CinemaItem[];
   upcoming: CinemaItem[];
   animeCinema: CinemaItem[];
+  downloadableMovies: CinemaItem[];
+  agasobanuye: CinemaItem[];
+  abasobanuzi: Umusobanuzi[];
   people: PersonItem[];
   genres: string[];
   stats: {

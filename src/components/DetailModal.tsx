@@ -4,22 +4,33 @@ import {
   Calendar,
   Check,
   Clock,
+  Download,
   ExternalLink,
+  FileText,
   Heart,
+  Image as ImageIcon,
   Play,
   Share2,
   Star,
   Tv,
   X,
 } from 'lucide-react';
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import type {
   CinemaDetailResponse,
   CinemaItem,
+  DownloadHistoryEntry,
   PersonDetailResponse,
-  PersonItem,
   UserReview,
 } from '../types/cinema';
+import {
+  buildCinemaInfoText,
+  createDownloadHistoryEntry,
+  downloadRemoteMedia,
+  downloadTextFile,
+  formatBytes,
+  sanitizeFilename,
+} from '../utils/download';
 import { MediaCard } from './MediaCard';
 import { MediaImage } from './MediaImage';
 
@@ -35,6 +46,7 @@ interface MediaDetailModalProps {
   onToggleFavorite: (item: CinemaItem) => void;
   reviews: UserReview[];
   onAddReview: (mediaId: string, mediaTitle: string, rating: number, text: string) => void;
+  onRecordDownload?: (entry: Omit<DownloadHistoryEntry, 'id' | 'downloadedAt'>) => void;
 }
 
 export function MediaDetailModal({
@@ -49,39 +61,52 @@ export function MediaDetailModal({
   onToggleFavorite,
   reviews,
   onAddReview,
+  onRecordDownload,
 }: MediaDetailModalProps) {
   const [detail, setDetail] = useState<CinemaDetailResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [detailError, setDetailError] = useState(false);
   const [playingTrailer, setPlayingTrailer] = useState(false);
   const [selectedSeason, setSelectedSeason] = useState<number>(1);
   const [reviewRating, setReviewRating] = useState(9);
   const [reviewText, setReviewText] = useState('');
   const [copied, setCopied] = useState(false);
+  const backdropRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!item) {
       setDetail(null);
+      setDetailError(false);
       setPlayingTrailer(false);
       setCopied(false);
+      setReviewText('');
       return;
     }
     let cancelled = false;
     setLoading(true);
+    setDetailError(false);
     setPlayingTrailer(false);
     setCopied(false);
+    setReviewText('');
+    backdropRef.current?.scrollTo({ top: 0 });
 
     const url = `/api/cinema/item/${encodeURIComponent(item.id)}?title=${encodeURIComponent(item.title)}`;
     fetch(url)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data: CinemaDetailResponse | null) => {
-        if (!cancelled && data) {
+      .then((res) => {
+        if (!res.ok) throw new Error('Detail unavailable');
+        return res.json();
+      })
+      .then((data: CinemaDetailResponse) => {
+        if (!cancelled) {
           setDetail(data);
           if (data.seasons && data.seasons.length > 0) {
             setSelectedSeason(data.seasons[0]);
           }
         }
       })
-      .catch(() => {})
+      .catch(() => {
+        if (!cancelled) setDetailError(true);
+      })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
@@ -93,13 +118,19 @@ export function MediaDetailModal({
 
   if (!item) return null;
 
-  const active = detail || {
-    ...item,
-    cast: [],
-    episodes: [],
-    seasons: [],
-    similar: [],
-  };
+  const active = detail
+    ? {
+        ...detail,
+        umusobanuzi: detail.umusobanuzi || item.umusobanuzi,
+        kinyarwandaCategory: detail.kinyarwandaCategory || item.kinyarwandaCategory,
+      }
+    : {
+        ...item,
+        cast: [],
+        episodes: [],
+        seasons: [],
+        similar: [],
+      };
 
   const saved = isInWatchlist(active.id);
   const fav = isFavorite(active.id);
@@ -146,6 +177,7 @@ export function MediaDetailModal({
 
   return (
     <div
+      ref={backdropRef}
       className="fixed inset-0 z-50 overflow-y-auto bg-black/80 backdrop-blur-sm p-2 sm:p-6"
       role="dialog"
       aria-modal="true"
@@ -191,7 +223,7 @@ export function MediaDetailModal({
                   className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center gap-2.5 rounded-full bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground shadow-xl hover:bg-primary/90 transition-transform hover:scale-105"
                 >
                   <Play className="h-5 w-5 fill-current" aria-hidden="true" />
-                  Play Official Trailer
+                  {active.isFullMovie ? 'Play Full Movie' : 'Play Official Trailer'}
                 </button>
               )}
             </>
@@ -278,7 +310,13 @@ export function MediaDetailModal({
                     className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-xs sm:text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
                   >
                     <Play className="h-4 w-4 fill-current" aria-hidden="true" />
-                    {playingTrailer ? 'Hide Trailer' : 'Watch Trailer'}
+                    {playingTrailer
+                      ? active.isFullMovie
+                        ? 'Hide Movie'
+                        : 'Hide Trailer'
+                      : active.isFullMovie
+                        ? 'Watch Full Movie'
+                        : 'Watch Trailer'}
                   </button>
                 )}
 
@@ -371,6 +409,108 @@ export function MediaDetailModal({
                   <span className="font-semibold text-foreground">{active.director}</span>
                 </p>
               )}
+
+              {active.umusobanuzi && (
+                <p className="text-sm text-muted-foreground">
+                  Yasobanuwe mu Kinyarwanda na{' '}
+                  <span className="font-semibold text-primary">
+                    {active.umusobanuzi.name}
+                  </span>{' '}
+                  ({active.umusobanuzi.aka})
+                </p>
+              )}
+
+              {/* Download Options */}
+              <div className="rounded-lg border border-border bg-card/80 p-3.5 space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Download Options
+                  </span>
+                  {active.isFullMovie && (
+                    <span className="text-xs font-medium text-primary">
+                      Public Domain Full Feature · MP4
+                    </span>
+                  )}
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {active.downloadFiles && active.downloadFiles.length > 0 ? (
+                    active.downloadFiles.map((file, idx) => {
+                      const sizeLabel = formatBytes(file.sizeBytes);
+                      return (
+                        <button
+                          key={`${file.url}-${idx}`}
+                          type="button"
+                          onClick={() => {
+                            downloadRemoteMedia(file.url, active.title, '.mp4');
+                            onRecordDownload?.(createDownloadHistoryEntry(active, 'Full Movie'));
+                          }}
+                          className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition-colors whitespace-nowrap"
+                        >
+                          <Download className="h-3.5 w-3.5" aria-hidden="true" />
+                          <span>{file.label}</span>
+                          {sizeLabel && (
+                            <span className="font-mono text-[11px] opacity-90 tabular-nums">
+                              ({sizeLabel})
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })
+                  ) : (active.downloadUrl || active.trailerUrl) ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const target = active.downloadUrl || active.trailerUrl;
+                        if (!target) return;
+                        downloadRemoteMedia(
+                          target,
+                          active.isFullMovie ? active.title : `${active.title}-trailer`,
+                          active.isFullMovie ? '.mp4' : '.m4v'
+                        );
+                        onRecordDownload?.(
+                          createDownloadHistoryEntry(
+                            active,
+                            active.isFullMovie ? 'Full Movie' : 'Trailer'
+                          )
+                        );
+                      }}
+                      className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition-colors whitespace-nowrap"
+                    >
+                      <Download className="h-3.5 w-3.5" aria-hidden="true" />
+                      {active.isFullMovie ? 'Download Full Movie (.mp4)' : 'Download Trailer (.m4v)'}
+                    </button>
+                  ) : null}
+
+                  {active.posterUrl && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        downloadRemoteMedia(active.posterUrl, `${active.title}-poster`, '.jpg');
+                        onRecordDownload?.(createDownloadHistoryEntry(active, 'Poster'));
+                      }}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted transition-colors whitespace-nowrap"
+                    >
+                      <ImageIcon className="h-3.5 w-3.5" aria-hidden="true" />
+                      Poster (.jpg)
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      downloadTextFile(
+                        buildCinemaInfoText(active),
+                        sanitizeFilename(`${active.title}-info`, '.txt')
+                      );
+                      onRecordDownload?.(createDownloadHistoryEntry(active, 'Info Card'));
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted transition-colors whitespace-nowrap"
+                  >
+                    <FileText className="h-3.5 w-3.5" aria-hidden="true" />
+                    Info Dossier (.txt)
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -380,6 +520,12 @@ export function MediaDetailModal({
                 <div key={i} className="h-20 rounded-lg shimmer" />
               ))}
             </div>
+          )}
+
+          {!loading && detailError && (
+            <p className="mt-6 rounded-lg border border-border bg-muted/40 px-4 py-3 text-xs text-muted-foreground">
+              Additional cast and episode details could not be loaded right now. Showing summary metadata.
+            </p>
           )}
 
           {/* Cast Section */}
@@ -738,10 +884,18 @@ interface TrailerModalProps {
   item: CinemaItem | null;
   onClose: () => void;
   onOpenDetail: (item: CinemaItem) => void;
+  onRecordDownload?: (entry: Omit<DownloadHistoryEntry, 'id' | 'downloadedAt'>) => void;
 }
 
-export function TrailerModal({ item, onClose, onOpenDetail }: TrailerModalProps) {
+export function TrailerModal({
+  item,
+  onClose,
+  onOpenDetail,
+  onRecordDownload,
+}: TrailerModalProps) {
   if (!item) return null;
+
+  const downloadableMediaUrl = item.downloadUrl || item.trailerUrl;
 
   return (
     <div
@@ -755,23 +909,45 @@ export function TrailerModal({ item, onClose, onOpenDetail }: TrailerModalProps)
         className="relative w-full max-w-4xl overflow-hidden rounded-xl border border-border bg-card shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-border px-4 py-3">
+        <div className="flex items-center justify-between border-b border-border px-4 py-3 gap-3">
           <div className="min-w-0">
             <h3 className="font-display text-base font-bold text-foreground truncate">
-              {item.title} — Official Preview
+              {item.title} — {item.isFullMovie ? 'Full Feature Film' : 'Official Preview'}
             </h3>
             <p className="text-xs text-muted-foreground">
               {item.year ?? ''} · {item.genres.slice(0, 2).join(', ')}
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            {downloadableMediaUrl && (
+              <button
+                type="button"
+                onClick={() => {
+                  downloadRemoteMedia(
+                    downloadableMediaUrl,
+                    item.isFullMovie ? item.title : `${item.title}-trailer`,
+                    item.isFullMovie ? '.mp4' : '.m4v'
+                  );
+                  onRecordDownload?.(
+                    createDownloadHistoryEntry(
+                      item,
+                      item.isFullMovie ? 'Full Movie' : 'Trailer'
+                    )
+                  );
+                }}
+                className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition-colors whitespace-nowrap"
+              >
+                <Download className="h-3.5 w-3.5" aria-hidden="true" />
+                Download
+              </button>
+            )}
             <button
               type="button"
               onClick={() => {
                 onClose();
                 onOpenDetail(item);
               }}
-              className="rounded-md bg-muted px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted/80 transition-colors"
+              className="rounded-md bg-muted px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted/80 transition-colors whitespace-nowrap"
             >
               View Details
             </button>

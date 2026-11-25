@@ -8,7 +8,9 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { AuthModal } from './components/AuthModal';
+import { AgasobanuyeView } from './components/AgasobanuyeView';
 import { MediaDetailModal, PersonDetailModal, TrailerModal } from './components/DetailModal';
+import { DownloadsView } from './components/DownloadsView';
 import {
   BoxOfficeView,
   CalendarView,
@@ -26,7 +28,8 @@ import { HeroSpotlight } from './components/HeroSpotlight';
 import { MediaCard } from './components/MediaCard';
 import { MediaImage } from './components/MediaImage';
 import { useCinemaStore } from './hooks/useCinemaStore';
-import type { CinemaItem, HomeCinemaResponse } from './types/cinema';
+import type { CinemaDetailResponse, CinemaItem, HomeCinemaResponse } from './types/cinema';
+import { createDownloadHistoryEntry, downloadRemoteMedia } from './utils/download';
 
 function SectionRow({
   title,
@@ -34,6 +37,7 @@ function SectionRow({
   onSeeAll,
   onSelectMedia,
   onPlayTrailer,
+  onDownload,
   isInWatchlist,
   onToggleWatchlist,
   showRank = false,
@@ -43,6 +47,7 @@ function SectionRow({
   onSeeAll?: () => void;
   onSelectMedia: (item: CinemaItem) => void;
   onPlayTrailer: (item: CinemaItem) => void;
+  onDownload?: (item: CinemaItem) => void;
   isInWatchlist: (id: string) => boolean;
   onToggleWatchlist: (item: CinemaItem) => void;
   showRank?: boolean;
@@ -72,6 +77,7 @@ function SectionRow({
             item={item}
             onSelect={onSelectMedia}
             onPlayTrailer={onPlayTrailer}
+            onDownload={onDownload}
             inWatchlist={isInWatchlist(item.id)}
             onToggleWatchlist={onToggleWatchlist}
             rankIndex={showRank ? idx + 1 : undefined}
@@ -87,6 +93,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<NavTab>('home');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedGenre, setSelectedGenre] = useState('Action');
+  const [selectedTranslatorId, setSelectedTranslatorId] = useState('all');
   const [homeData, setHomeData] = useState<HomeCinemaResponse | null>(null);
   const [homeLoading, setHomeLoading] = useState(true);
   const [homeError, setHomeError] = useState(false);
@@ -136,16 +143,23 @@ export default function App() {
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      if (e.key !== 'Escape') return;
+      if (trailerItem) {
         setTrailerItem(null);
-        setSelectedPerson(null);
-        setSelectedMedia(null);
+      } else if (authOpen) {
         setAuthOpen(false);
+      } else if (selectedPerson) {
+        setSelectedPerson(null);
+      } else if (selectedMedia) {
+        setSelectedMedia(null);
+        if (window.location.search.includes('item=')) {
+          window.history.replaceState(null, '', window.location.pathname);
+        }
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
+  }, [trailerItem, authOpen, selectedPerson, selectedMedia]);
 
   const handleNavigate = (tab: NavTab) => {
     setActiveTab(tab);
@@ -163,6 +177,40 @@ export default function App() {
     setActiveTab('genres');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
+
+  const handleQuickDownload = useCallback(
+    async (item: CinemaItem) => {
+      const directUrl = item.downloadUrl || item.trailerUrl;
+      if (directUrl) {
+        downloadRemoteMedia(
+          directUrl,
+          item.isFullMovie ? item.title : `${item.title}-trailer`,
+          item.isFullMovie ? '.mp4' : '.m4v'
+        );
+        store.recordDownload(
+          createDownloadHistoryEntry(item, item.isFullMovie ? 'Full Movie' : 'Trailer')
+        );
+        return;
+      }
+
+      if (item.source === 'archive') {
+        try {
+          const res = await fetch(
+            `/api/cinema/item/${encodeURIComponent(item.id)}?title=${encodeURIComponent(item.title)}`
+          );
+          if (!res.ok) return;
+          const detail: CinemaDetailResponse = await res.json();
+          const targetUrl =
+            detail.downloadUrl || detail.downloadFiles?.[0]?.url || detail.trailerUrl;
+          if (targetUrl) {
+            downloadRemoteMedia(targetUrl, item.title, '.mp4');
+            store.recordDownload(createDownloadHistoryEntry(item, 'Full Movie'));
+          }
+        } catch {}
+      }
+    },
+    [store]
+  );
 
   const allHomePool = homeData
     ? [...homeData.trending, ...homeData.topRated, ...homeData.popularTv]
@@ -303,10 +351,24 @@ export default function App() {
                     onSeeAll={() => handleNavigate('trending')}
                     onSelectMedia={setSelectedMedia}
                     onPlayTrailer={setTrailerItem}
+                    onDownload={handleQuickDownload}
                     isInWatchlist={store.isInWatchlist}
                     onToggleWatchlist={store.toggleWatchlist}
                     showRank
                   />
+
+                  {homeData.downloadableMovies && homeData.downloadableMovies.length > 0 && (
+                    <SectionRow
+                      title="Free Full Movies to Watch & Download"
+                      items={homeData.downloadableMovies}
+                      onSeeAll={() => handleNavigate('downloads')}
+                      onSelectMedia={setSelectedMedia}
+                      onPlayTrailer={setTrailerItem}
+                      onDownload={handleQuickDownload}
+                      isInWatchlist={store.isInWatchlist}
+                      onToggleWatchlist={store.toggleWatchlist}
+                    />
+                  )}
 
                   <SectionRow
                     title="Top Rated Cinema"
@@ -314,6 +376,7 @@ export default function App() {
                     onSeeAll={() => handleNavigate('discover')}
                     onSelectMedia={setSelectedMedia}
                     onPlayTrailer={setTrailerItem}
+                    onDownload={handleQuickDownload}
                     isInWatchlist={store.isInWatchlist}
                     onToggleWatchlist={store.toggleWatchlist}
                   />
@@ -324,6 +387,7 @@ export default function App() {
                     onSeeAll={() => handleNavigate('tv')}
                     onSelectMedia={setSelectedMedia}
                     onPlayTrailer={setTrailerItem}
+                    onDownload={handleQuickDownload}
                     isInWatchlist={store.isInWatchlist}
                     onToggleWatchlist={store.toggleWatchlist}
                   />
@@ -334,6 +398,7 @@ export default function App() {
                     onSeeAll={() => handleNavigate('calendar')}
                     onSelectMedia={setSelectedMedia}
                     onPlayTrailer={setTrailerItem}
+                    onDownload={handleQuickDownload}
                     isInWatchlist={store.isInWatchlist}
                     onToggleWatchlist={store.toggleWatchlist}
                   />
@@ -344,6 +409,7 @@ export default function App() {
                     onSeeAll={() => handleSelectGenre('Animation')}
                     onSelectMedia={setSelectedMedia}
                     onPlayTrailer={setTrailerItem}
+                    onDownload={handleQuickDownload}
                     isInWatchlist={store.isInWatchlist}
                     onToggleWatchlist={store.toggleWatchlist}
                   />
@@ -398,6 +464,63 @@ export default function App() {
                     </div>
                   </section>
 
+                  <SectionRow
+                    title="Agasobanuye mu Kinyarwanda"
+                    items={homeData.agasobanuye}
+                    onSeeAll={() => {
+                      setSelectedTranslatorId('all');
+                      handleNavigate('agasobanuye');
+                    }}
+                    onSelectMedia={setSelectedMedia}
+                    onPlayTrailer={setTrailerItem}
+                    onDownload={handleQuickDownload}
+                    isInWatchlist={store.isInWatchlist}
+                    onToggleWatchlist={store.toggleWatchlist}
+                  />
+
+                  {/* Abasobanuzi bose bo mu Rwanda */}
+                  <section className="space-y-4">
+                    <div className="flex items-center justify-between gap-4">
+                      <h2 className="font-display text-xl sm:text-2xl font-bold tracking-tight text-foreground">
+                        Abasobanuzi bo mu Rwanda
+                      </h2>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedTranslatorId('all');
+                          handleNavigate('agasobanuye');
+                        }}
+                        className="inline-flex items-center gap-1 text-xs sm:text-sm font-semibold text-primary hover:underline whitespace-nowrap shrink-0"
+                      >
+                        Reba bose ({homeData.abasobanuzi.length})
+                        <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                      {homeData.abasobanuzi.slice(0, 12).map((u) => (
+                        <button
+                          key={u.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedTranslatorId(u.id);
+                            handleNavigate('agasobanuye');
+                          }}
+                          className="card-lift rounded-lg border border-border bg-card p-3.5 text-left hover:border-primary/50"
+                        >
+                          <div className="text-sm font-bold text-foreground truncate">
+                            {u.name}
+                          </div>
+                          <div className="mt-0.5 text-[11px] text-muted-foreground truncate">
+                            {u.aka}
+                          </div>
+                          <div className="mt-2 text-[11px] font-medium text-primary truncate">
+                            {u.specialty[0]}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+
                   {/* Quick Genre Jump Strip */}
                   <section className="space-y-3 border-t border-border pt-8">
                     <h2 className="font-display text-lg font-bold text-foreground">
@@ -429,6 +552,7 @@ export default function App() {
             initialType="all"
             onSelectMedia={setSelectedMedia}
             onPlayTrailer={setTrailerItem}
+            onDownload={handleQuickDownload}
             isInWatchlist={store.isInWatchlist}
             onToggleWatchlist={store.toggleWatchlist}
           />
@@ -442,6 +566,7 @@ export default function App() {
             lockType
             onSelectMedia={setSelectedMedia}
             onPlayTrailer={setTrailerItem}
+            onDownload={handleQuickDownload}
             isInWatchlist={store.isInWatchlist}
             onToggleWatchlist={store.toggleWatchlist}
           />
@@ -455,8 +580,33 @@ export default function App() {
             lockType
             onSelectMedia={setSelectedMedia}
             onPlayTrailer={setTrailerItem}
+            onDownload={handleQuickDownload}
             isInWatchlist={store.isInWatchlist}
             onToggleWatchlist={store.toggleWatchlist}
+          />
+        )}
+
+        {activeTab === 'agasobanuye' && (
+          <AgasobanuyeView
+            initialTranslatorId={selectedTranslatorId}
+            onSelectMedia={setSelectedMedia}
+            onPlayTrailer={setTrailerItem}
+            onDownload={handleQuickDownload}
+            isInWatchlist={store.isInWatchlist}
+            onToggleWatchlist={store.toggleWatchlist}
+          />
+        )}
+
+        {activeTab === 'downloads' && (
+          <DownloadsView
+            onSelectMedia={setSelectedMedia}
+            onPlayTrailer={setTrailerItem}
+            isInWatchlist={store.isInWatchlist}
+            onToggleWatchlist={store.toggleWatchlist}
+            downloadHistory={store.downloadHistory}
+            onRecordDownload={store.recordDownload}
+            onClearHistory={store.clearDownloadHistory}
+            watchlist={store.watchlist}
           />
         )}
 
@@ -468,6 +618,7 @@ export default function App() {
             initialSort="trending"
             onSelectMedia={setSelectedMedia}
             onPlayTrailer={setTrailerItem}
+            onDownload={handleQuickDownload}
             isInWatchlist={store.isInWatchlist}
             onToggleWatchlist={store.toggleWatchlist}
           />
@@ -481,13 +632,18 @@ export default function App() {
             onChangeGenre={setSelectedGenre}
             onSelectMedia={setSelectedMedia}
             onPlayTrailer={setTrailerItem}
+            onDownload={handleQuickDownload}
             isInWatchlist={store.isInWatchlist}
             onToggleWatchlist={store.toggleWatchlist}
           />
         )}
 
         {activeTab === 'trailers' && (
-          <TrailersView onSelectMedia={setSelectedMedia} onPlayTrailer={setTrailerItem} />
+          <TrailersView
+            onSelectMedia={setSelectedMedia}
+            onPlayTrailer={setTrailerItem}
+            onDownload={handleQuickDownload}
+          />
         )}
 
         {activeTab === 'boxoffice' && (
@@ -507,6 +663,7 @@ export default function App() {
             reviews={store.reviews}
             onSelectMedia={setSelectedMedia}
             onPlayTrailer={setTrailerItem}
+            onDownload={handleQuickDownload}
             isInWatchlist={store.isInWatchlist}
             onToggleWatchlist={store.toggleWatchlist}
           />
@@ -517,6 +674,7 @@ export default function App() {
             query={searchQuery}
             onSelectMedia={setSelectedMedia}
             onPlayTrailer={setTrailerItem}
+            onDownload={handleQuickDownload}
             onSelectPerson={setSelectedPerson}
             isInWatchlist={store.isInWatchlist}
             onToggleWatchlist={store.toggleWatchlist}
@@ -528,7 +686,12 @@ export default function App() {
 
       <MediaDetailModal
         item={selectedMedia}
-        onClose={() => setSelectedMedia(null)}
+        onClose={() => {
+          setSelectedMedia(null);
+          if (window.location.search.includes('item=')) {
+            window.history.replaceState(null, '', window.location.pathname);
+          }
+        }}
         onSelectMedia={(next) => setSelectedMedia(next)}
         onSelectPerson={(p) => setSelectedPerson(p)}
         onSelectGenre={handleSelectGenre}
@@ -538,6 +701,7 @@ export default function App() {
         onToggleFavorite={store.toggleFavorite}
         reviews={store.reviews}
         onAddReview={store.addReview}
+        onRecordDownload={store.recordDownload}
       />
 
       <PersonDetailModal
@@ -550,6 +714,7 @@ export default function App() {
         item={trailerItem}
         onClose={() => setTrailerItem(null)}
         onOpenDetail={(m) => setSelectedMedia(m)}
+        onRecordDownload={store.recordDownload}
       />
 
       <AuthModal

@@ -47,6 +47,11 @@ export function Footer({ onNavigate }: FooterProps) {
                 </button>
               </li>
               <li>
+                <button type="button" onClick={() => onNavigate('agasobanuye')} className="hover:text-foreground transition-colors">
+                  Agasobanuye (Kinyarwanda)
+                </button>
+              </li>
+              <li>
                 <button type="button" onClick={() => onNavigate('trending')} className="hover:text-foreground transition-colors">
                   Trending
                 </button>
@@ -93,6 +98,11 @@ export function Footer({ onNavigate }: FooterProps) {
           <div>
             <h4 className="text-sm font-semibold text-foreground mb-3">Your Library</h4>
             <ul className="space-y-2 text-sm text-muted-foreground">
+              <li>
+                <button type="button" onClick={() => onNavigate('downloads')} className="hover:text-foreground transition-colors">
+                  Downloads Center
+                </button>
+              </li>
               <li>
                 <button type="button" onClick={() => onNavigate('watchlist')} className="hover:text-foreground transition-colors">
                   Watchlist &amp; Favorites

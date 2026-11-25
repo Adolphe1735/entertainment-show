@@ -1,5 +1,5 @@
 import { Film, User } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 interface MediaImageProps {
   src?: string;
@@ -17,6 +17,10 @@ export function MediaImage({
   loading = 'lazy',
 }: MediaImageProps) {
   const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setFailed(false);
+  }, [src]);
 
   if (!src || failed) {
     return (

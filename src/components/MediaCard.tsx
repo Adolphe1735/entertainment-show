@@ -1,4 +1,4 @@
-import { Bookmark, BookmarkCheck, Play, Star } from 'lucide-react';
+import { Bookmark, BookmarkCheck, Download, Play, Star } from 'lucide-react';
 import type { CinemaItem } from '../types/cinema';
 import { MediaImage } from './MediaImage';
 
@@ -6,6 +6,7 @@ interface MediaCardProps {
   item: CinemaItem;
   onSelect: (item: CinemaItem) => void;
   onPlayTrailer?: (item: CinemaItem) => void;
+  onDownload?: (item: CinemaItem) => void;
   inWatchlist: boolean;
   onToggleWatchlist: (item: CinemaItem) => void;
   rankIndex?: number;
@@ -15,12 +16,20 @@ export function MediaCard({
   item,
   onSelect,
   onPlayTrailer,
+  onDownload,
   inWatchlist,
   onToggleWatchlist,
   rankIndex,
 }: MediaCardProps) {
-  const typeLabel =
-    item.type === 'tv' ? 'TV Series' : item.type === 'anime' ? 'Anime' : 'Movie';
+  const typeLabel = item.isFullMovie
+    ? 'Full Movie'
+    : item.type === 'tv'
+      ? 'TV Series'
+      : item.type === 'anime'
+        ? 'Anime'
+        : 'Movie';
+
+  const canDirectDownload = Boolean(onDownload && (item.downloadUrl || item.trailerUrl));
 
   return (
     <article className="group relative flex flex-col rounded-lg overflow-hidden bg-card border border-border card-lift">
@@ -45,25 +54,42 @@ export function MediaCard({
           </div>
         )}
 
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggleWatchlist(item);
-          }}
-          aria-label={inWatchlist ? `Remove ${item.title} from watchlist` : `Add ${item.title} to watchlist`}
-          className={`absolute top-2 right-2 flex h-8 w-8 items-center justify-center rounded-md backdrop-blur-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
-            inWatchlist
-              ? 'bg-primary text-primary-foreground'
-              : 'bg-black/60 text-white hover:bg-primary'
-          }`}
-        >
-          {inWatchlist ? (
-            <BookmarkCheck className="h-4 w-4" aria-hidden="true" />
-          ) : (
-            <Bookmark className="h-4 w-4" aria-hidden="true" />
+        <div className="absolute top-2 right-2 flex items-center gap-1">
+          {canDirectDownload && onDownload && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDownload(item);
+              }}
+              aria-label={`Download ${item.title}`}
+              title={item.isFullMovie ? 'Download Full Movie (MP4)' : 'Download Trailer'}
+              className="flex h-8 w-8 items-center justify-center rounded-md bg-black/60 text-white backdrop-blur-sm transition-colors hover:bg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            >
+              <Download className="h-4 w-4" aria-hidden="true" />
+            </button>
           )}
-        </button>
+
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleWatchlist(item);
+            }}
+            aria-label={inWatchlist ? `Remove ${item.title} from watchlist` : `Add ${item.title} to watchlist`}
+            className={`flex h-8 w-8 items-center justify-center rounded-md backdrop-blur-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+              inWatchlist
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-black/60 text-white hover:bg-primary'
+            }`}
+          >
+            {inWatchlist ? (
+              <BookmarkCheck className="h-4 w-4" aria-hidden="true" />
+            ) : (
+              <Bookmark className="h-4 w-4" aria-hidden="true" />
+            )}
+          </button>
+        </div>
 
         {item.trailerUrl && onPlayTrailer && (
           <button
@@ -75,7 +101,7 @@ export function MediaCard({
             className="absolute bottom-2.5 left-2.5 right-2.5 flex items-center justify-center gap-1.5 rounded-md bg-primary/95 py-1.5 px-3 text-xs font-semibold text-primary-foreground opacity-0 translate-y-1 transition-all duration-200 group-hover:opacity-100 group-hover:translate-y-0 hover:bg-primary whitespace-nowrap"
           >
             <Play className="h-3.5 w-3.5 fill-current" aria-hidden="true" />
-            Watch Trailer
+            {item.isFullMovie ? 'Watch Movie' : 'Watch Trailer'}
           </button>
         )}
       </div>

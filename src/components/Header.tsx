@@ -17,6 +17,8 @@ export type NavTab =
   | 'discover'
   | 'movies'
   | 'tv'
+  | 'agasobanuye'
+  | 'downloads'
   | 'people'
   | 'genres'
   | 'trending'
@@ -45,12 +47,14 @@ const PRIMARY_NAV: Array<{ id: NavTab; label: string }> = [
   { id: 'discover', label: 'Discover' },
   { id: 'movies', label: 'Movies' },
   { id: 'tv', label: 'TV Shows' },
+  { id: 'agasobanuye', label: 'Agasobanuye' },
+  { id: 'downloads', label: 'Downloads' },
   { id: 'people', label: 'People' },
   { id: 'genres', label: 'Genres' },
-  { id: 'trending', label: 'Trending' },
 ];
 
 const MORE_NAV: Array<{ id: NavTab; label: string }> = [
+  { id: 'trending', label: 'Trending' },
   { id: 'trailers', label: 'Trailers' },
   { id: 'boxoffice', label: 'Box Office' },
   { id: 'compare', label: 'Compare Movies' },

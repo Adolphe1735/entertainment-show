@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { CinemaItem, LocalUser, UserReview } from '../types/cinema';
+import type { CinemaItem, DownloadHistoryEntry, LocalUser, UserReview } from '../types/cinema';
 
 const WATCHLIST_KEY = 'cineverse-watchlist-v1';
 const FAVORITES_KEY = 'cineverse-favorites-v1';
 const REVIEWS_KEY = 'cineverse-reviews-v1';
+const DOWNLOADS_KEY = 'cineverse-downloads-v1';
 const USER_KEY = 'cineverse-user-v1';
 const THEME_KEY = 'cineverse-theme';
 
@@ -28,6 +29,9 @@ export function useCinemaStore() {
   const [watchlist, setWatchlist] = useState<CinemaItem[]>(() => readJson(WATCHLIST_KEY, []));
   const [favorites, setFavorites] = useState<CinemaItem[]>(() => readJson(FAVORITES_KEY, []));
   const [reviews, setReviews] = useState<UserReview[]>(() => readJson(REVIEWS_KEY, []));
+  const [downloadHistory, setDownloadHistory] = useState<DownloadHistoryEntry[]>(() =>
+    readJson(DOWNLOADS_KEY, [])
+  );
   const [user, setUser] = useState<LocalUser | null>(() => readJson(USER_KEY, null));
 
   useEffect(() => {
@@ -61,6 +65,12 @@ export function useCinemaStore() {
       localStorage.setItem(REVIEWS_KEY, JSON.stringify(reviews));
     } catch {}
   }, [reviews]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(DOWNLOADS_KEY, JSON.stringify(downloadHistory));
+    } catch {}
+  }, [downloadHistory]);
 
   useEffect(() => {
     try {
@@ -116,6 +126,22 @@ export function useCinemaStore() {
     [user]
   );
 
+  const recordDownload = useCallback(
+    (entry: Omit<DownloadHistoryEntry, 'id' | 'downloadedAt'>) => {
+      const next: DownloadHistoryEntry = {
+        ...entry,
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        downloadedAt: new Date().toISOString(),
+      };
+      setDownloadHistory((prev) => [next, ...prev].slice(0, 60));
+    },
+    []
+  );
+
+  const clearDownloadHistory = useCallback(() => {
+    setDownloadHistory([]);
+  }, []);
+
   const signIn = useCallback((name: string, email: string) => {
     setUser({
       name: name.trim() || email.split('@')[0] || 'Member',
@@ -134,12 +160,15 @@ export function useCinemaStore() {
     watchlist,
     favorites,
     reviews,
+    downloadHistory,
     user,
     isInWatchlist,
     toggleWatchlist,
     isFavorite,
     toggleFavorite,
     addReview,
+    recordDownload,
+    clearDownloadHistory,
     signIn,
     signOut,
   };

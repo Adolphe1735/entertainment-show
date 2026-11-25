@@ -3,10 +3,14 @@ import {
   Calendar as CalendarIcon,
   ChevronLeft,
   ChevronRight,
+  Download,
+  FileJson,
+  FileSpreadsheet,
   Film,
   Globe,
   Heart,
   Play,
+  RefreshCw,
   Scale,
   Search,
   Star,
@@ -22,12 +26,14 @@ import type {
   SearchResponse,
   UserReview,
 } from '../types/cinema';
+import { buildWatchlistCsv, downloadTextFile } from '../utils/download';
 import { MediaCard } from './MediaCard';
 import { MediaImage } from './MediaImage';
 
 interface CommonHandlers {
   onSelectMedia: (item: CinemaItem) => void;
   onPlayTrailer: (item: CinemaItem) => void;
+  onDownload?: (item: CinemaItem) => void;
   isInWatchlist: (id: string) => boolean;
   onToggleWatchlist: (item: CinemaItem) => void;
 }
@@ -44,6 +50,22 @@ function GridSkeleton() {
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+function ErrorRetryCard({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-10 text-center space-y-3">
+      <p className="text-sm text-muted-foreground">{message}</p>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
+      >
+        <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+        Retry
+      </button>
     </div>
   );
 }
@@ -75,6 +97,7 @@ export function DiscoverView({
   lockType = false,
   onSelectMedia,
   onPlayTrailer,
+  onDownload,
   isInWatchlist,
   onToggleWatchlist,
 }: DiscoverViewProps) {
@@ -87,6 +110,8 @@ export function DiscoverView({
   const [page, setPage] = useState(1);
   const [data, setData] = useState<DiscoverResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [retryTick, setRetryTick] = useState(0);
 
   useEffect(() => {
     setType(initialType);
@@ -107,6 +132,7 @@ export function DiscoverView({
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setError(false);
     const params = new URLSearchParams({
       type,
       genre,
@@ -119,11 +145,16 @@ export function DiscoverView({
     });
 
     fetch(`/api/cinema/discover?${params.toString()}`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((resData: DiscoverResponse | null) => {
-        if (!cancelled && resData) setData(resData);
+      .then((res) => {
+        if (!res.ok) throw new Error('Failed to fetch');
+        return res.json();
       })
-      .catch(() => {})
+      .then((resData: DiscoverResponse) => {
+        if (!cancelled) setData(resData);
+      })
+      .catch(() => {
+        if (!cancelled) setError(true);
+      })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
@@ -131,7 +162,7 @@ export function DiscoverView({
     return () => {
       cancelled = true;
     };
-  }, [type, genre, region, sort, year, minRating, page]);
+  }, [type, genre, region, sort, year, minRating, page, retryTick]);
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 space-y-6">
@@ -247,6 +278,11 @@ export function DiscoverView({
 
       {loading ? (
         <GridSkeleton />
+      ) : error ? (
+        <ErrorRetryCard
+          message="Could not load cinema catalog right now."
+          onRetry={() => setRetryTick((t) => t + 1)}
+        />
       ) : data && data.items.length > 0 ? (
         <>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
@@ -256,6 +292,7 @@ export function DiscoverView({
                 item={item}
                 onSelect={onSelectMedia}
                 onPlayTrailer={onPlayTrailer}
+                onDownload={onDownload}
                 inWatchlist={isInWatchlist(item.id)}
                 onToggleWatchlist={onToggleWatchlist}
                 rankIndex={sort === 'trending' && page === 1 && idx < 10 ? idx + 1 : undefined}
@@ -319,23 +356,31 @@ export function PeopleView({
   const [page, setPage] = useState(0);
   const [people, setPeople] = useState<PersonItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [retryTick, setRetryTick] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setError(false);
     fetch(`/api/cinema/people?page=${page}`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data: { items: PersonItem[] } | null) => {
-        if (!cancelled && data) setPeople(data.items);
+      .then((res) => {
+        if (!res.ok) throw new Error('Failed');
+        return res.json();
       })
-      .catch(() => {})
+      .then((data: { items: PersonItem[] }) => {
+        if (!cancelled) setPeople(data.items);
+      })
+      .catch(() => {
+        if (!cancelled) setError(true);
+      })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [page]);
+  }, [page, retryTick]);
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 space-y-6">
@@ -372,6 +417,11 @@ export function PeopleView({
 
       {loading ? (
         <GridSkeleton />
+      ) : error ? (
+        <ErrorRetryCard
+          message="Could not load people directory right now."
+          onRetry={() => setRetryTick((t) => t + 1)}
+        />
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
           {people.map((person) => (
@@ -466,6 +516,7 @@ export function GenresView(props: CommonHandlers & { activeGenre: string; onChan
         initialGenre={props.activeGenre}
         onSelectMedia={props.onSelectMedia}
         onPlayTrailer={props.onPlayTrailer}
+        onDownload={props.onDownload}
         isInWatchlist={props.isInWatchlist}
         onToggleWatchlist={props.onToggleWatchlist}
       />
@@ -477,22 +528,39 @@ export function GenresView(props: CommonHandlers & { activeGenre: string; onChan
 export function TrailersView({
   onSelectMedia,
   onPlayTrailer,
+  onDownload,
 }: {
   onSelectMedia: (item: CinemaItem) => void;
   onPlayTrailer: (item: CinemaItem) => void;
+  onDownload?: (item: CinemaItem) => void;
 }) {
   const [items, setItems] = useState<CinemaItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [retryTick, setRetryTick] = useState(0);
 
   useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(false);
     fetch('/api/cinema/trailers')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: { items: CinemaItem[] } | null) => {
-        if (d) setItems(d.items);
+      .then((r) => {
+        if (!r.ok) throw new Error('Failed');
+        return r.json();
       })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
+      .then((d: { items: CinemaItem[] }) => {
+        if (!cancelled) setItems(d.items);
+      })
+      .catch(() => {
+        if (!cancelled) setError(true);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [retryTick]);
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 space-y-6">
@@ -507,6 +575,11 @@ export function TrailersView({
 
       {loading ? (
         <GridSkeleton />
+      ) : error ? (
+        <ErrorRetryCard
+          message="Could not load official trailers right now."
+          onRetry={() => setRetryTick((t) => t + 1)}
+        />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
           {items.map((item) => (
@@ -537,15 +610,27 @@ export function TrailersView({
                   <h3 className="font-display text-base font-bold truncate">{item.title}</h3>
                 </div>
               </button>
-              <div className="flex items-center justify-between px-4 py-3 text-xs text-muted-foreground">
+              <div className="flex items-center justify-between gap-2 px-4 py-3 text-xs text-muted-foreground">
                 <span className="truncate">{item.director || 'Feature Film'}</span>
-                <button
-                  type="button"
-                  onClick={() => onSelectMedia(item)}
-                  className="font-semibold text-primary hover:underline shrink-0"
-                >
-                  Details
-                </button>
+                <div className="flex items-center gap-2.5 shrink-0">
+                  {onDownload && item.trailerUrl && (
+                    <button
+                      type="button"
+                      onClick={() => onDownload(item)}
+                      className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground hover:bg-muted transition-colors whitespace-nowrap"
+                    >
+                      <Download className="h-3.5 w-3.5" aria-hidden="true" />
+                      Download
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => onSelectMedia(item)}
+                    className="font-semibold text-primary hover:underline shrink-0"
+                  >
+                    Details
+                  </button>
+                </div>
               </div>
             </article>
           ))}
@@ -566,17 +651,31 @@ export function BoxOfficeView({
   const [region, setRegion] = useState('us');
   const [items, setItems] = useState<CinemaItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [retryTick, setRetryTick] = useState(0);
 
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
+    setError(false);
     fetch(`/api/cinema/discover?type=movie&region=${region}&sort=trending&limit=40`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: DiscoverResponse | null) => {
-        if (d) setItems(d.items);
+      .then((r) => {
+        if (!r.ok) throw new Error('Failed');
+        return r.json();
       })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [region]);
+      .then((d: DiscoverResponse) => {
+        if (!cancelled) setItems(d.items);
+      })
+      .catch(() => {
+        if (!cancelled) setError(true);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [region, retryTick]);
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 space-y-6">
@@ -611,6 +710,11 @@ export function BoxOfficeView({
 
       {loading ? (
         <GridSkeleton />
+      ) : error ? (
+        <ErrorRetryCard
+          message="Could not load box office charts right now."
+          onRetry={() => setRetryTick((t) => t + 1)}
+        />
       ) : (
         <div className="overflow-hidden rounded-xl border border-border bg-card">
           <div className="overflow-x-auto">
@@ -867,16 +971,31 @@ export function CompareView({
 export function CalendarView({ onSelectMedia }: { onSelectMedia: (item: CinemaItem) => void }) {
   const [data, setData] = useState<CalendarResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [retryTick, setRetryTick] = useState(0);
 
   useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(false);
     fetch('/api/cinema/calendar')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: CalendarResponse | null) => {
-        if (d) setData(d);
+      .then((r) => {
+        if (!r.ok) throw new Error('Failed');
+        return r.json();
       })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
+      .then((d: CalendarResponse) => {
+        if (!cancelled) setData(d);
+      })
+      .catch(() => {
+        if (!cancelled) setError(true);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [retryTick]);
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 space-y-8">
@@ -894,6 +1013,11 @@ export function CalendarView({ onSelectMedia }: { onSelectMedia: (item: CinemaIt
 
       {loading ? (
         <GridSkeleton />
+      ) : error ? (
+        <ErrorRetryCard
+          message="Could not load release calendar right now."
+          onRetry={() => setRetryTick((t) => t + 1)}
+        />
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <section className="space-y-4">
@@ -1041,6 +1165,7 @@ export function WatchlistView({
   reviews,
   onSelectMedia,
   onPlayTrailer,
+  onDownload,
   isInWatchlist,
   onToggleWatchlist,
 }: CommonHandlers & {
@@ -1132,7 +1257,7 @@ export function WatchlistView({
             </span>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <label htmlFor="watchlist-sort" className="text-xs font-medium text-muted-foreground whitespace-nowrap">
               Sort by
             </label>
@@ -1150,6 +1275,34 @@ export function WatchlistView({
               <option value="typeMovieFirst">Media Type (Movies first)</option>
               <option value="typeTvFirst">Media Type (TV Shows first)</option>
             </select>
+            <button
+              type="button"
+              onClick={() =>
+                downloadTextFile(
+                  JSON.stringify(organizedItems, null, 2),
+                  `cineverse-${tab}.json`,
+                  'application/json;charset=utf-8'
+                )
+              }
+              className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-muted transition-colors whitespace-nowrap"
+            >
+              <FileJson className="h-3.5 w-3.5" aria-hidden="true" />
+              JSON
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                downloadTextFile(
+                  buildWatchlistCsv(organizedItems),
+                  `cineverse-${tab}.csv`,
+                  'text/csv;charset=utf-8'
+                )
+              }
+              className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-muted transition-colors whitespace-nowrap"
+            >
+              <FileSpreadsheet className="h-3.5 w-3.5" aria-hidden="true" />
+              CSV
+            </button>
           </div>
         </div>
       )}
@@ -1164,6 +1317,7 @@ export function WatchlistView({
                   item={item}
                   onSelect={onSelectMedia}
                   onPlayTrailer={onPlayTrailer}
+                  onDownload={onDownload}
                   inWatchlist={isInWatchlist(item.id)}
                   onToggleWatchlist={onToggleWatchlist}
                 />
@@ -1200,6 +1354,7 @@ export function WatchlistView({
                   item={item}
                   onSelect={onSelectMedia}
                   onPlayTrailer={onPlayTrailer}
+                  onDownload={onDownload}
                   inWatchlist={isInWatchlist(item.id)}
                   onToggleWatchlist={onToggleWatchlist}
                 />
@@ -1262,6 +1417,7 @@ export function SearchResultsView({
   query,
   onSelectMedia,
   onPlayTrailer,
+  onDownload,
   onSelectPerson,
   isInWatchlist,
   onToggleWatchlist,
@@ -1271,27 +1427,36 @@ export function SearchResultsView({
 }) {
   const [results, setResults] = useState<SearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
+  const [retryTick, setRetryTick] = useState(0);
 
   useEffect(() => {
     if (!query.trim()) {
       setResults(null);
+      setError(false);
       return;
     }
     let cancelled = false;
     setLoading(true);
+    setError(false);
     fetch(`/api/cinema/search?q=${encodeURIComponent(query.trim())}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: SearchResponse | null) => {
-        if (!cancelled && d) setResults(d);
+      .then((r) => {
+        if (!r.ok) throw new Error('Failed');
+        return r.json();
       })
-      .catch(() => {})
+      .then((d: SearchResponse) => {
+        if (!cancelled) setResults(d);
+      })
+      .catch(() => {
+        if (!cancelled) setError(true);
+      })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [query]);
+  }, [query, retryTick]);
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 space-y-8">
@@ -1306,6 +1471,11 @@ export function SearchResultsView({
 
       {loading ? (
         <GridSkeleton />
+      ) : error ? (
+        <ErrorRetryCard
+          message={`Could not complete search for "${query}".`}
+          onRetry={() => setRetryTick((t) => t + 1)}
+        />
       ) : results ? (
         <div className="space-y-10">
           {results.movies.length > 0 && (
@@ -1321,6 +1491,7 @@ export function SearchResultsView({
                     item={m}
                     onSelect={onSelectMedia}
                     onPlayTrailer={onPlayTrailer}
+                    onDownload={onDownload}
                     inWatchlist={isInWatchlist(m.id)}
                     onToggleWatchlist={onToggleWatchlist}
                   />
@@ -1342,6 +1513,7 @@ export function SearchResultsView({
                     item={t}
                     onSelect={onSelectMedia}
                     onPlayTrailer={onPlayTrailer}
+                    onDownload={onDownload}
                     inWatchlist={isInWatchlist(t.id)}
                     onToggleWatchlist={onToggleWatchlist}
                   />
